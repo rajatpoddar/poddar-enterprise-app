@@ -1,0 +1,27 @@
+<!-- File: templates/manager/edit_user.html -->
+{% extends 'layout.html' %}
+{% block title %}Edit User{% endblock %}
+
+{% block content %}
+<div class="mx-auto" style="max-width: 500px;">
+    <div class="card shadow-sm">
+        <div class="card-header"><h4 class="mb-0">Edit {{ user.name }}</h4></div>
+        <div class="card-body">
+            <form method="post">
+                <div class="mb-3"><label class="form-label">Name</label><input type="text" name="name" class="form-control" value="{{ user.name }}" required></div>
+                <div class="mb-3"><label class="form-label">Phone</label><input type="tel" name="phone" class="form-control" value="{{ user.phone }}"></div>
+                <div class="mb-3"><label class="form-label">Role</label><select name="role" class="form-select">
+                    <option value="employee" {% if user.role == 'employee' %}selected{% endif %}>Employee</option>
+                    <option value="manager" {% if user.role == 'manager' %}selected{% endif %}>Manager</option>
+                </select></div>
+                <div class="mb-3"><label class="form-label">Business</label><select name="business_id" class="form-select" required><option value="">Select...</option>{% for b in businesses %}<option value="{{ b.id }}" {% if user.business_id == b.id %}selected{% endif %}>{{ b.name }}</option>{% endfor %}</select></div>
+                <div class="mb-3"><label class="form-label">Daily Wage (₹)</label><input type="number" step="0.01" name="daily_wage" class="form-control" value="{{ user.daily_wage }}"></div>
+                <div class="d-flex justify-content-between">
+                    <a href="{{ url_for('list_users') }}" class="btn btn-secondary">Cancel</a>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

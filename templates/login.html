@@ -1,0 +1,41 @@
+<!-- File: templates/login.html -->
+{% extends 'layout_simple.html' %}
+{% block title %}Login{% endblock %}
+
+{% block content %}
+<div class="mx-auto" style="max-width: 400px;">
+    <div class="text-center mb-4">
+        <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo" width="72">
+        <h1 class="h3 mb-3 fw-normal">Poddar Enterprise</h1>
+        <p>Please sign in to continue</p>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body p-4">
+            <form method="post">
+                <div class="mb-3">
+                    <label for="user_id" class="form-label">Select Your Name / Role</label>
+                    <select id="user_id" name="user_id" class="form-select form-select-lg" required>
+                        <option value="" disabled selected>-- Select --</option>
+                        <optgroup label="Managers">
+                        {% for user in users %}{% if user.role == 'manager' %}
+                            <option value="{{ user.id }}">{{ user.name }} (Manager)</option>
+                        {% endif %}{% endfor %}
+                        </optgroup>
+                        <optgroup label="Employees">
+                        {% for user in users %}{% if user.role == 'employee' %}
+                            <option value="{{ user.id }}">{{ user.name }}</option>
+                        {% endif %}{% endfor %}
+                        </optgroup>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="pin" class="form-label">PIN</label>
+                    <input type="password" name="pin" id="pin" class="form-control form-control-lg" inputmode="numeric" pattern="[0-9]*" required>
+                </div>
+                <button class="w-100 btn btn-lg btn-primary" type="submit">Sign in</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

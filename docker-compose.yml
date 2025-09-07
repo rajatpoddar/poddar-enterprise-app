@@ -1,0 +1,17 @@
+# File: docker-compose.yml
+
+version: '3.8'
+
+name: 'poddar_enterprise'
+
+services:
+  web:
+    build: .
+    container_name: business_manager_app
+    ports:
+      - "7899:5000"
+    volumes:
+      # Mount a dedicated directory for the database to avoid locking issues
+      - ./data:/app/data
+      - ./static/uploads:/app/static/uploads
+    restart: unless-stopped

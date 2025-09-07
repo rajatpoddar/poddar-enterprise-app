@@ -1,0 +1,15 @@
+/* File: static/style.css */
+/* Basic styling for the application */
+
+body {
+    background-color: #f8f9fa;
+}
+
+.card {
+    border: none;
+}
+
+.navbar-brand {
+    letter-spacing: 0.5px;
+}
+

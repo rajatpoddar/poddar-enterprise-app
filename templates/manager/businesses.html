@@ -1,0 +1,44 @@
+<!-- File: templates/manager/businesses.html -->
+{% extends 'layout.html' %}
+{% block title %}Businesses{% endblock %}
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card shadow-sm">
+            <div class="card-header"><h4 class="mb-0">Existing Businesses</h4></div>
+            <div class="card-body">
+                <ul class="list-group">
+                {% for business in businesses %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="badge me-2" style="background-color: {{ business.color }};">&nbsp;</span>
+                            {{ business.name }}
+                            <span class="badge bg-secondary rounded-pill ms-2">{{ business.employee_count }} {% if business.employee_count == 1 %}Employee{% else %}Employees{% endif %}</span>
+                        </div>
+                        <a href="{{ url_for('edit_business', id=business.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+                    </li>
+                {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card shadow-sm">
+            <div class="card-header"><h4 class="mb-0">Add New Business</h4></div>
+            <div class="card-body">
+                <form action="{{ url_for('add_business') }}" method="post">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Business Name</label>
+                        <input type="text" name="name" id="name" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="color" class="form-label">Theme Color</label>
+                        <input type="color" name="color" id="color" class="form-control form-control-color" value="#cccccc" title="Choose your color">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add Business</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

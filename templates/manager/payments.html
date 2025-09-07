@@ -1,0 +1,143 @@
+<!-- File: templates/manager/payments.html -->
+{% extends 'layout.html' %}
+{% block title %}Payments{% endblock %}
+{% block content %}
+
+<!-- Payment Charts -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h4 class="mb-0">Monthly Payment Analytics</h4>
+        <div class="btn-group btn-group-sm">
+            <input type="month" id="monthSelector" class="form-control form-control-sm" value="{{ now.strftime('%Y-%m') }}">
+            <button class="btn btn-outline-secondary" id="groupByBusiness">By Business</button>
+            <button class="btn btn-outline-secondary active" id="groupByEmployee">By Employee</button>
+        </div>
+    </div>
+    <div class="card-body">
+        <canvas id="paymentChart"></canvas>
+    </div>
+</div>
+
+<!-- Employee Balances -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header">
+        <h4 class="mb-0">Employee Balances & Wages Due</h4>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Employee</th>
+                        <th class="text-end">Amount Due (To Employee)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for balance in employee_balances %}
+                    <tr>
+                        <td><a href="{{ url_for('user_profile', id=balance.id) }}" class="text-decoration-none">{{ balance.name }}</a></td>
+                        <td class="text-end fw-bold {{ 'text-success' if balance.amount_due >= 0 else 'text-danger' }}">
+                            ₹{{ "%.2f"|format(balance.amount_due) }}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="2" class="text-center">No employees found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Add a Transaction -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header"><h4 class="mb-0">Add a Transaction</h4></div>
+    <div class="card-body">
+        <form action="{{ url_for('payments') }}" method="post">
+            <div class="row g-3">
+                <div class="col-md-3"><label class="form-label">Employee</label><select name="employee_id" class="form-select" required><option value="">Select...</option>{% for u in users %}<option value="{{ u.id }}">{{ u.name }}</option>{% endfor %}</select></div>
+                <div class="col-md-2"><label class="form-label">Amount (₹)</label><input type="number" step="0.01" name="amount" class="form-control" required></div>
+                <div class="col-md-2"><label class="form-label">Type</label><select name="payment_type" class="form-select" required><option value="Payment">Payment</option><option value="Advance">Advance</option></select></div>
+                <div class="col-md-2"><label class="form-label">Date</label><input type="date" name="date" class="form-control" value="{{ now.strftime('%Y-%m-%d') }}"></div>
+                <div class="col-md-2"><label class="form-label">Notes</label><input type="text" name="notes" class="form-control" placeholder="Optional"></div>
+                <div class="col-md-1 d-grid"><label class="form-label">&nbsp;</label><button type="submit" class="btn btn-primary">Add</button></div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Recent Transactions -->
+<div class="card shadow-sm">
+    <div class="card-header"><h4 class="mb-0">Recent Transactions</h4></div>
+    <div class="table-responsive">
+        <table class="table mb-0">
+             <thead><tr><th>Date</th><th>Employee</th><th>Type</th><th>Notes</th><th class="text-end">Amount</th></tr></thead>
+             <tbody>
+                {% for tx in transactions %}
+                <tr>
+                    <td>{{ tx.date }}</td>
+                    <td>{{ tx.employee_name }}</td>
+                    <td><span class="badge bg-{{ 'success' if tx.payment_type == 'Payment' else 'warning text-dark' }}">{{ tx.payment_type }}</span></td>
+                    <td>{{ tx.notes if tx.notes }}</td>
+                    <td class="text-end">₹{{ "%.2f"|format(tx.amount) }}</td>
+                </tr>
+                {% else %} <tr><td colspan="5" class="text-center">No recent transactions.</td></tr> {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+let paymentChart;
+async function renderPaymentChart(month, groupBy) {
+    const response = await fetch(`/api/payment_data?month=${month}&group_by=${groupBy}`);
+    const data = await response.json();
+    
+    const ctx = document.getElementById('paymentChart');
+    if (paymentChart) { paymentChart.destroy(); }
+    
+    paymentChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: data.labels,
+            datasets: [{
+                label: 'Total Payments & Advances (₹)',
+                data: data.values,
+                backgroundColor: 'rgba(0, 123, 255, 0.5)',
+                borderColor: 'rgba(0, 123, 255, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: { scales: { y: { beginAtZero: true } } }
+    });
+}
+document.addEventListener('DOMContentLoaded', () => {
+    const monthSelector = document.getElementById('monthSelector');
+    const groupByBusinessBtn = document.getElementById('groupByBusiness');
+    const groupByEmployeeBtn = document.getElementById('groupByEmployee');
+    let currentGroupBy = 'employee';
+
+    const updateChart = () => renderPaymentChart(monthSelector.value, currentGroupBy);
+    
+    monthSelector.addEventListener('change', updateChart);
+    groupByBusinessBtn.addEventListener('click', () => {
+        currentGroupBy = 'business';
+        groupByBusinessBtn.classList.add('active');
+        groupByEmployeeBtn.classList.remove('active');
+        updateChart();
+    });
+    groupByEmployeeBtn.addEventListener('click', () => {
+        currentGroupBy = 'employee';
+        groupByEmployeeBtn.classList.add('active');
+        groupByBusinessBtn.classList.remove('active');
+        updateChart();
+    });
+    
+    updateChart(); // Initial render
+});
+</script>
+{% endblock %}
+
