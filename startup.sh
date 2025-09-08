@@ -4,9 +4,15 @@
 # Navigate to the app directory
 cd /app
 
-# Run the database initialization command using Flask's CLI
-flask initdb
-echo "Database initialization complete."
+# --- FIX: Only initialize the database if it doesn't exist ---
+DB_FILE="/app/data/business.db"
+if [ ! -f "$DB_FILE" ]; then
+    echo "Database not found. Initializing..."
+    flask initdb
+    echo "Database initialization complete."
+else
+    echo "Database already exists. Skipping initialization."
+fi
 
 # Start the Gunicorn server
 echo "Starting Gunicorn..."

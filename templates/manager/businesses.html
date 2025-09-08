@@ -1,4 +1,3 @@
-<!-- File: templates/manager/businesses.html -->
 {% extends 'layout.html' %}
 {% block title %}Businesses{% endblock %}
 {% block content %}
@@ -12,8 +11,16 @@
                     <li class="list-group-item d-flex justify-content-between align-items-center">
                         <div>
                             <span class="badge me-2" style="background-color: {{ business.color }};">&nbsp;</span>
-                            {{ business.name }}
-                            <span class="badge bg-secondary rounded-pill ms-2">{{ business.employee_count }} {% if business.employee_count == 1 %}Employee{% else %}Employees{% endif %}</span>
+                            <strong>{{ business.name }}</strong>
+                            <br>
+                            <small class="ms-4">
+                                <span class="badge bg-secondary rounded-pill">{{ business.employee_count }} {% if business.employee_count == 1 %}Employee{% else %}Employees{% endif %}</span>
+                                {% if business.manager_name %}
+                                <span class="badge bg-info text-dark rounded-pill ms-1">Managed by: {{ business.manager_name }}</span>
+                                {% else %}
+                                <span class="badge bg-warning text-dark rounded-pill ms-1">No Manager Assigned</span>
+                                {% endif %}
+                            </small>
                         </div>
                         <a href="{{ url_for('edit_business', id=business.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
                     </li>

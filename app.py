@@ -64,6 +64,15 @@ def manager_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def business_manager_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session or session.get('role') != 'business_manager':
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 @app.before_request
 def load_logged_in_user():
     user_id = session.get('user_id')
@@ -71,7 +80,7 @@ def load_logged_in_user():
         g.user = None
     else:
         db = get_db()
-        g.user = db.execute('SELECT * FROM users WHERE id = ? AND is_active = 1', (user_id,)).fetchone()
+        g.user = db.execute('SELECT u.*, b.name as business_name FROM users u LEFT JOIN businesses b ON u.business_id = b.id WHERE u.id = ? AND u.is_active = 1', (user_id,)).fetchone()
         db.close()
         if g.user is None and 'user_id' in session:
             session.clear()
@@ -81,7 +90,6 @@ def _jinja2_filter_ist(date_obj, fmt='%Y-%m-%d %I:%M %p'):
     if not date_obj: return ''
     try:
         if isinstance(date_obj, str):
-             # This is a fallback, but should not happen with the new get_db config
             if '.' in date_obj:
                  utc_dt = datetime.strptime(date_obj, '%Y-%m-%d %H:%M:%S.%f')
             else:
@@ -89,7 +97,7 @@ def _jinja2_filter_ist(date_obj, fmt='%Y-%m-%d %I:%M %p'):
         elif isinstance(date_obj, datetime):
             utc_dt = date_obj
         else:
-            return date_obj # Should not happen
+            return date_obj
         
         if utc_dt.tzinfo is None:
             utc_dt = pytz.utc.localize(utc_dt)
@@ -105,12 +113,11 @@ def calculate_employee_balance(db, employee_id):
     if not user: return { "earned_wages": 0, "total_paid": 0, "amount_due": 0 }
     
     daily_wage = user['daily_wage'] or 0
-    all_events = db.execute("SELECT event_type, details, timestamp FROM attendance WHERE employee_id = ? AND event_type IN ('Start', 'End') ORDER BY timestamp", (employee_id,)).fetchall()
+    all_events = db.execute("SELECT event_type, details, timestamp FROM attendance WHERE employee_id = ? AND event_type IN ('Start', 'End') AND attendance_status = 'approved' ORDER BY timestamp", (employee_id,)).fetchall()
 
     earned_wages = 0
     work_days = {}
     for event in all_events:
-        # Now event['timestamp'] is guaranteed to be a datetime object
         day_str = event['timestamp'].strftime('%Y-%m-%d')
         if day_str not in work_days:
             work_days[day_str] = {'Start': None, 'End': None, 'details': None}
@@ -133,12 +140,9 @@ def calculate_employee_balance(db, employee_id):
     return { "earned_wages": earned_wages, "total_paid": total_paid, "amount_due": balance }
 
 def get_db():
-    # PERMANENT FIX: This ensures timestamps are read as datetime objects
     db = sqlite3.connect(DATABASE, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
     db.row_factory = sqlite3.Row
-    # Register adapter to store datetime with microseconds
     sqlite3.register_adapter(datetime, lambda val: val.isoformat(" "))
-    # Register converter to parse datetime
     sqlite3.register_converter("DATETIME", lambda val: datetime.fromisoformat(val.decode()))
     return db
 
@@ -162,6 +166,7 @@ def initdb_command():
 def login():
     if g.user:
         if g.user['role'] == 'manager': return redirect(url_for('dashboard'))
+        elif g.user['role'] == 'business_manager': return redirect(url_for('manager_dashboard'))
         else: return redirect(url_for('employee_dashboard'))
 
     db = get_db()
@@ -177,6 +182,7 @@ def login():
             session.permanent = True
             session['user_id'], session['user_name'], session['role'] = user['id'], user['name'], user['role']
             if user['role'] == 'manager': return redirect(url_for('dashboard'))
+            elif user['role'] == 'business_manager': return redirect(url_for('manager_dashboard'))
             else: return redirect(url_for('employee_dashboard'))
         else:
             flash('Invalid PIN for active user.', 'danger')
@@ -188,14 +194,12 @@ def logout():
     flash('You have been logged out.', 'info')
     return redirect(url_for('login'))
 
-# --- Manager Pages ---
+# --- Admin Pages ---
 @app.route('/')
 @login_required
 @manager_required
 def dashboard():
     db = get_db()
-    
-    # --- DASHBOARD IMPROVEMENT: Fetch all employee balances ---
     all_employees = db.execute("SELECT id, name FROM users WHERE role = 'employee' AND is_active = 1 ORDER BY name").fetchall()
     employee_balances = []
     for emp in all_employees:
@@ -223,9 +227,8 @@ def dashboard():
                            employees_present=employees_present_q, 
                            employees_absent=employees_absent_q, 
                            attendances=attendances_q,
-                           employee_balances=employee_balances) # Pass new data to template
+                           employee_balances=employee_balances)
 
-# --- NEW ROUTE: Pay Dues ---
 @app.route('/pay_dues/<int:employee_id>', methods=['POST'])
 @login_required
 @manager_required
@@ -247,13 +250,163 @@ def pay_dues(employee_id):
     return redirect(url_for('dashboard'))
 
 
-# --- Remaining routes are unchanged... ---
+# --- Business Manager Pages ---
+@app.route('/manager_dashboard')
+@login_required
+@business_manager_required
+def manager_dashboard():
+    db = get_db()
+    business_id = g.user['business_id']
+
+    employees = db.execute("SELECT id, name FROM users WHERE role = 'employee' AND is_active = 1 AND business_id = ? ORDER BY name", (business_id,)).fetchall()
+    
+    employee_balances = []
+    for emp in employees:
+        balance_info = calculate_employee_balance(db, emp['id'])
+        employee_balances.append({
+            'id': emp['id'],
+            'name': emp['name'],
+            'amount_due': balance_info['amount_due']
+        })
+    
+    attendances = db.execute("SELECT a.*, u.name as employee_name FROM attendance a JOIN users u ON a.employee_id = u.id WHERE u.business_id = ? ORDER BY a.timestamp DESC LIMIT 20", (business_id,)).fetchall()
+    pending_count = db.execute("SELECT COUNT(a.id) FROM attendance a JOIN users u ON a.employee_id = u.id WHERE u.business_id = ? AND a.attendance_status = 'pending'", (business_id,)).fetchone()[0]
+
+    db.close()
+    return render_template('manager/manager_dashboard.html', 
+                           employee_balances=employee_balances,
+                           attendances=attendances,
+                           pending_count=pending_count)
+
+@app.route('/manager_pay_dues/<int:employee_id>', methods=['POST'])
+@login_required
+@business_manager_required
+def manager_pay_dues(employee_id):
+    db = get_db()
+    
+    # Security check: ensure the employee belongs to the manager's business
+    employee = db.execute("SELECT name, business_id FROM users WHERE id = ?", (employee_id,)).fetchone()
+    if not employee or employee['business_id'] != g.user['business_id']:
+        flash("You do not have permission to pay this user.", "danger")
+        return redirect(url_for('manager_dashboard'))
+
+    balance_info = calculate_employee_balance(db, employee_id)
+    amount_due = balance_info['amount_due']
+
+    if amount_due > 0:
+        notes = f"Settled by manager: {g.user['name']}"
+        db.execute('INSERT INTO payments (employee_id, amount, payment_type, date, notes) VALUES (?, ?, ?, ?, ?)',
+               (employee_id, amount_due, 'Wages Paid', date.today().strftime('%Y-%m-%d'), notes))
+        db.commit()
+        flash(f'Successfully paid ₹{amount_due:.2f} to {employee["name"]}.', 'success')
+    else:
+        flash('No payment necessary as there is no amount due.', 'info')
+    
+    db.close()
+    return redirect(url_for('manager_dashboard'))
+
+
+@app.route('/approve_all_pending', methods=['POST'])
+@login_required
+@business_manager_required
+def approve_all_pending():
+    db = get_db()
+    business_id = g.user['business_id']
+    # Subquery to ensure we only update attendance for employees in the manager's business
+    db.execute("""
+        UPDATE attendance 
+        SET attendance_status = 'approved' 
+        WHERE attendance_status = 'pending' 
+        AND employee_id IN (SELECT id FROM users WHERE business_id = ?)
+    """, (business_id,))
+    db.commit()
+    db.close()
+    flash('All pending attendance records have been approved.', 'success')
+    return redirect(url_for('manager_dashboard'))
+
+
+@app.route('/approve_attendance/<int:attendance_id>', methods=['POST'])
+@login_required
+@business_manager_required
+def approve_attendance(attendance_id):
+    db = get_db()
+    db.execute("UPDATE attendance SET attendance_status = 'approved' WHERE id = ?", (attendance_id,))
+    db.commit()
+    db.close()
+    flash('Attendance approved.', 'success')
+    return redirect(url_for('manager_dashboard'))
+
+@app.route('/reject_attendance/<int:attendance_id>', methods=['POST'])
+@login_required
+@business_manager_required
+def reject_attendance(attendance_id):
+    rejection_reason = request.form.get('rejection_reason')
+    db = get_db()
+    db.execute("UPDATE attendance SET attendance_status = 'rejected', rejection_reason = ? WHERE id = ?", (rejection_reason, attendance_id))
+    db.commit()
+    db.close()
+    flash('Attendance rejected.', 'warning')
+    return redirect(url_for('manager_dashboard'))
+
+@app.route('/manager_reports')
+@login_required
+@business_manager_required
+def manager_reports():
+    db = get_db()
+    business_id = g.user['business_id']
+    page = request.args.get('page', 1, type=int)
+    offset = (page - 1) * app.config['ITEMS_PER_PAGE']
+    
+    count = db.execute("SELECT COUNT(a.id) FROM attendance a JOIN users u ON a.employee_id = u.id WHERE u.business_id = ?", (business_id,)).fetchone()[0]
+    total_pages = math.ceil(count / app.config['ITEMS_PER_PAGE'])
+    
+    attendances = db.execute("SELECT a.*, u.name as employee_name FROM attendance a JOIN users u ON a.employee_id = u.id WHERE u.business_id = ? ORDER BY a.timestamp DESC LIMIT ? OFFSET ?", 
+                             (business_id, app.config['ITEMS_PER_PAGE'], offset)).fetchall()
+    db.close()
+    return render_template('manager/manager_reports.html', attendances=attendances, page=page, total_pages=total_pages)
+
+@app.route('/manager_pin_management', methods=['GET', 'POST'])
+@login_required
+@business_manager_required
+def manager_pin_management():
+    db = get_db()
+    business_id = g.user['business_id']
+    
+    if request.method == 'POST':
+        action = request.form.get('action')
+        if action == 'change_own_pin':
+            new_pin = request.form.get('new_pin')
+            if len(new_pin) >= 4:
+                db.execute('UPDATE users SET pin = ? WHERE id = ?', (new_pin, g.user['id']))
+                db.commit()
+                flash('Your PIN has been updated successfully!', 'success')
+            else:
+                flash('PIN must be at least 4 digits.', 'danger')
+        else: # Change employee PIN
+            user_id = request.form.get('user_id')
+            new_pin = request.form.get('new_pin')
+            user_to_change = db.execute("SELECT id FROM users WHERE id = ? AND business_id = ?", (user_id, business_id)).fetchone()
+            if user_to_change and len(new_pin) >= 4:
+                db.execute('UPDATE users SET pin = ? WHERE id = ?', (new_pin, user_id))
+                db.commit()
+                flash('Employee PIN updated successfully!', 'success')
+            else:
+                flash('Invalid request or PIN must be at least 4 digits.', 'danger')
+        
+        db.close()
+        return redirect(url_for('manager_pin_management'))
+
+    users = db.execute("SELECT id, name, role, pin FROM users WHERE role = 'employee' AND business_id = ? AND is_active = 1 ORDER BY name", (business_id,)).fetchall()
+    db.close()
+    return render_template('manager/manager_pin_management.html', users=users)
+
+# --- Admin-Only Routes ---
 @app.route('/users')
 @login_required
 @manager_required
 def list_users():
     db = get_db()
-    active_users = db.execute("SELECT u.id, u.name, u.phone, u.daily_wage, u.role, b.name as business_name, b.color FROM users u LEFT JOIN businesses b ON u.business_id = b.id WHERE u.is_active = 1 ORDER BY u.name").fetchall()
+    active_users = db.execute("SELECT u.id, u.name, u.phone, u.daily_wage, u.role, b.name as business_name, b.color FROM users u LEFT JOIN businesses b ON u.business_id = b.id WHERE u.is_active = 1 ORDER BY u.role, u.name").fetchall()
     inactive_users = db.execute("SELECT u.id, u.name, u.phone, u.daily_wage, u.role, b.name as business_name, b.color FROM users u LEFT JOIN businesses b ON u.business_id = b.id WHERE u.is_active = 0 ORDER BY u.name").fetchall()
     businesses = db.execute('SELECT * FROM businesses ORDER BY name').fetchall()
     db.close()
@@ -307,6 +460,8 @@ def reports():
     db.close()
     return render_template('manager/reports.html', attendances=attendances, page=page, total_pages=total_pages)
 
+# --- Employee-Facing Routes ---
+# UPDATE this function in app.py
 @app.route('/employee/dashboard')
 @login_required
 def employee_dashboard():
@@ -315,13 +470,15 @@ def employee_dashboard():
     balance_info = calculate_employee_balance(db, employee_id)
     today_str = date.today().strftime('%Y-%m-%d')
     started_rec = db.execute("SELECT id, notes FROM attendance WHERE employee_id = ? AND event_type = 'Start' AND DATE(timestamp) = ?", (employee_id, today_str)).fetchone()
-    ended_rec = db.execute("SELECT 1 FROM attendance WHERE employee_id = ? AND event_type = 'End' AND DATE(timestamp) = ?", (employee_id, today_str)).fetchone()
+    # --- FIX: Fetch the status of the 'End' record ---
+    ended_rec = db.execute("SELECT attendance_status FROM attendance WHERE employee_id = ? AND event_type = 'End' AND DATE(timestamp) = ? ORDER BY timestamp DESC LIMIT 1", (employee_id, today_str)).fetchone()
     attendances_rec = db.execute('SELECT * FROM attendance WHERE employee_id = ? ORDER BY timestamp DESC LIMIT 5', (employee_id,)).fetchall()
     db.close()
     return render_template('employee/dashboard.html', 
                            balance_info=balance_info,
                            has_started=bool(started_rec),
                            has_ended=bool(ended_rec),
+                           ended_rec=ended_rec, # Pass the full record object to the template
                            todays_note=started_rec['notes'] if started_rec else '',
                            attendances=attendances_rec)
 
@@ -332,6 +489,16 @@ def mark_attendance():
     event_type = request.form.get('event_type')
     photo_data = request.form.get('photo')
     
+    db = get_db()
+    today_str = date.today().strftime('%Y-%m-%d')
+
+    # --- FEATURE: Make notes mandatory on 'End' Job ---
+    if event_type == 'End':
+        start_record = db.execute("SELECT id, notes FROM attendance WHERE employee_id = ? AND event_type = 'Start' AND DATE(timestamp) = ? ORDER BY timestamp ASC LIMIT 1", (employee_id, today_str)).fetchone()
+        if not start_record or not start_record['notes']:
+            flash('You must save a work note before you can end your job.', 'danger')
+            return redirect(url_for('employee_dashboard'))
+
     filename = "auto"
     if photo_data and 'data:image' in photo_data:
         try:
@@ -344,10 +511,7 @@ def mark_attendance():
             flash(f'Error saving photo: {e}', 'danger')
             return redirect(url_for('employee_dashboard'))
 
-    db = get_db()
-    today_str = date.today().strftime('%Y-%m-%d')
     details = ""
-
     if event_type == 'End':
         start_record = db.execute("SELECT timestamp FROM attendance WHERE employee_id = ? AND event_type = 'Start' AND DATE(timestamp) = ? ORDER BY timestamp ASC LIMIT 1", (employee_id, today_str)).fetchone()
         if start_record:
@@ -362,7 +526,7 @@ def mark_attendance():
                (employee_id, event_type, filename, details, datetime.now(pytz.utc)))
     db.commit()
     db.close()
-    flash(f'Attendance for "{event_type}" marked successfully!', 'success')
+    flash(f'Attendance for "{event_type}" marked successfully! It is now pending approval.', 'info')
     return redirect(url_for('employee_dashboard'))
 
 @app.route('/add_note', methods=['POST'])
@@ -381,6 +545,37 @@ def add_note():
         flash('Could not save note. Please mark your job start first.', 'warning')
     db.close()
     return redirect(url_for('employee_dashboard'))
+
+# --- Generic API and Utility Routes ---
+
+@app.route('/api/monthly_attendance')
+@login_required
+def api_monthly_attendance():
+    month_str = request.args.get('month', date.today().strftime('%Y-%m'))
+    db = get_db()
+
+    if g.user['role'] == 'business_manager':
+        business_id = g.user['business_id']
+        users = db.execute("SELECT id, name FROM users WHERE role = 'employee' AND is_active = 1 AND business_id = ? ORDER BY name", (business_id,)).fetchall()
+        recs = db.execute("SELECT a.employee_id, DATE(a.timestamp) as adate, a.details FROM attendance a JOIN users u ON a.employee_id = u.id WHERE strftime('%Y-%m', a.timestamp) = ? AND a.event_type = 'End' AND u.business_id = ? AND a.attendance_status = 'approved'", (month_str, business_id)).fetchall()
+    else: # Admin gets all
+        users = db.execute("SELECT id, name FROM users WHERE role = 'employee' AND is_active = 1 ORDER BY name").fetchall()
+        recs = db.execute("SELECT employee_id, DATE(timestamp) as adate, details FROM attendance WHERE strftime('%Y-%m', timestamp) = ? AND event_type = 'End' AND attendance_status = 'approved'", (month_str,)).fetchall()
+    
+    db.close()
+    
+    attendance_map = {}
+    for rec in recs:
+        if rec['adate'] not in attendance_map:
+            attendance_map[rec['adate']] = {}
+        status = 'H' if rec['details'] == 'Half Day' else 'P'
+        attendance_map[rec['adate']][rec['employee_id']] = status
+
+    user_list = [{'id': u['id'], 'name': u['name']} for u in users]
+    return jsonify({'users': user_list, 'attendance': attendance_map})
+
+# --- Add other routes from previous state that are not modified ---
+# (list_businesses, add_business, edit_business, add_user, edit_user, user_profile, pin_management, payments, etc.)
 
 @app.route('/add_user', methods=['POST'])
 @login_required
@@ -470,7 +665,19 @@ def payments():
 @manager_required
 def list_businesses():
     db = get_db()
-    businesses = db.execute("SELECT b.id, b.name, b.color, COUNT(u.id) as employee_count FROM businesses b LEFT JOIN users u ON b.id = u.business_id AND u.role = 'employee' GROUP BY b.id, b.name, b.color ORDER BY b.name").fetchall()
+    businesses = db.execute("""
+        SELECT 
+            b.id, 
+            b.name, 
+            b.color, 
+            COUNT(DISTINCT emp.id) as employee_count,
+            mgr.name as manager_name
+        FROM businesses b 
+        LEFT JOIN users emp ON b.id = emp.business_id AND emp.role = 'employee'
+        LEFT JOIN users mgr ON b.id = mgr.business_id AND mgr.role = 'business_manager'
+        GROUP BY b.id, b.name, b.color, mgr.name 
+        ORDER BY b.name
+    """).fetchall()
     db.close()
     return render_template('manager/businesses.html', businesses=businesses)
 
@@ -502,40 +709,6 @@ def edit_business(id):
     db.close()
     return render_template('manager/edit_business.html', business=business)
 
-@app.route('/api/monthly_attendance')
-@login_required
-@manager_required
-def api_monthly_attendance():
-    month_str = request.args.get('month', date.today().strftime('%Y-%m'))
-    db = get_db()
-    users = db.execute("SELECT id, name FROM users WHERE role = 'employee' AND is_active = 1 ORDER BY name").fetchall()
-    recs = db.execute("SELECT employee_id, DATE(timestamp) as adate, details FROM attendance WHERE strftime('%Y-%m', timestamp) = ? AND event_type = 'End'", (month_str,)).fetchall()
-    db.close()
-    
-    attendance_map = {}
-    for rec in recs:
-        if rec['adate'] not in attendance_map:
-            attendance_map[rec['adate']] = {}
-        status = 'H' if rec['details'] == 'Half Day' else 'P'
-        attendance_map[rec['adate']][rec['employee_id']] = status
-
-    user_list = [{'id': u['id'], 'name': u['name']} for u in users]
-    return jsonify({'users': user_list, 'attendance': attendance_map})
-
-@app.route('/api/payment_data')
-@login_required
-@manager_required
-def api_payment_data():
-    month_str, group_by = request.args.get('month', date.today().strftime('%Y-%m')), request.args.get('group_by', 'business')
-    db = get_db()
-    if group_by == 'employee':
-        query = "SELECT u.name as label, SUM(p.amount) as total FROM payments p JOIN users u ON p.employee_id = u.id WHERE strftime('%Y-%m', p.date) = ? GROUP BY u.name ORDER BY total DESC"
-    else:
-        query = "SELECT b.name as label, SUM(p.amount) as total FROM payments p JOIN users u ON p.employee_id = u.id JOIN businesses b ON u.business_id = b.id WHERE strftime('%Y-%m', p.date) = ? GROUP BY b.name ORDER BY total DESC"
-    data = db.execute(query, (month_str,)).fetchall()
-    db.close()
-    return jsonify({'labels': [r['label'] for r in data], 'values': [r['total'] for r in data]})
-    
 # --- Auto End Day Scheduler ---
 def auto_end_day_job():
     with app.app_context():
@@ -549,8 +722,8 @@ def auto_end_day_job():
         """, (today_str, today_str)).fetchall()
 
         for user in employees_to_end:
-            db.execute('INSERT INTO attendance (employee_id, event_type, photo_path, details, timestamp) VALUES (?, ?, ?, ?, ?)',
-                       (user['id'], 'End', 'auto', 'Auto Ended', datetime.now(pytz.utc)))
+            db.execute('INSERT INTO attendance (employee_id, event_type, photo_path, details, timestamp, attendance_status) VALUES (?, ?, ?, ?, ?, ?)',
+                       (user['id'], 'End', 'auto', 'Auto Ended', datetime.now(pytz.utc), 'approved'))
         db.commit()
         db.close()
         if employees_to_end:
@@ -570,5 +743,4 @@ if __name__ == '__main__':
         if not scheduler.running:
             scheduler.start()
             print("Scheduler started.")
-    app.run(host='0.0.0.0', port=5000)
-
+    app.run(host='0.0.0.0', port=5000, debug=True)

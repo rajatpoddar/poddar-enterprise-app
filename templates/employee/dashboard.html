@@ -12,7 +12,7 @@
         <div class="row text-center">
             <div class="col-sm-4 mb-3 mb-sm-0">
                  <div class="p-2 border rounded">
-                    <h6 class="text-muted">Total Wages Earned</h6>
+                    <h6 class="text-muted">Total Approved Wages</h6>
                     <p class="fs-4 fw-bold mb-0">₹{{ "%.2f"|format(balance_info.earned_wages) }}</p>
                 </div>
             </div>
@@ -36,8 +36,15 @@
 <div id="attendance-section" class="card shadow-sm mb-4">
     <div class="card-header"><h4 class="mb-0">Mark Your Attendance</h4></div>
     <div class="card-body">
+        <!-- --- FIX: Dynamic status message --- -->
         {% if has_ended %}
-            <div class="alert alert-success text-center">Thank you! Your attendance for today is complete.</div>
+            {% if ended_rec.attendance_status == 'approved' %}
+                <div class="alert alert-success text-center">Thank you! Your attendance for today has been <strong>approved</strong>.</div>
+            {% elif ended_rec.attendance_status == 'rejected' %}
+                 <div class="alert alert-danger text-center">Your attendance for today has been <strong>rejected</strong>. Please check with your manager.</div>
+            {% else %}
+                <div class="alert alert-info text-center">Thank you! Your attendance for today is complete and <strong>pending approval</strong>.</div>
+            {% endif %}
         {% else %}
         <form id="attendanceForm" action="{{ url_for('mark_attendance') }}" method="post">
             <div id="camera-container" class="mb-3 text-center" style="display: none;">
@@ -59,11 +66,11 @@
 <!-- Today's Work Notes -->
 {% if has_started and not has_ended %}
 <div class="card shadow-sm mb-4">
-    <div class="card-header"><h4 class="mb-0">Today's Work Notes</h4></div>
+    <div class="card-header"><h4 class="mb-0">Today's Work Notes (Required to End Job)</h4></div>
     <div class="card-body">
         <form action="{{ url_for('add_note') }}" method="post">
             <div class="mb-3">
-                <textarea name="notes" class="form-control" rows="3" placeholder="Enter details about your work today (e.g., location, tasks completed)...">{{ todays_note }}</textarea>
+                <textarea id="workNotes" name="notes" class="form-control" rows="3" placeholder="Enter details about your work today (e.g., location, tasks completed)..." required>{{ todays_note or '' }}</textarea>
             </div>
             <button type="submit" class="btn btn-primary">Save Note</button>
         </form>
@@ -78,7 +85,7 @@
         <div class="table-responsive">
             <table class="table table-hover mb-0">
                 <thead>
-                    <tr><th>Photo</th><th>Date & Time (IST)</th><th>Event</th><th>Details</th></tr>
+                    <tr><th>Photo</th><th>Date & Time (IST)</th><th>Event</th><th>Details</th><th>Status</th></tr>
                 </thead>
                 <tbody>
                 {% for att in attendances %}
@@ -93,9 +100,18 @@
                         <td>{{ att.timestamp | ist }}</td>
                         <td><span class="badge bg-{{ 'success' if att.event_type == 'Start' else 'danger' }}">{{ att.event_type }}</span></td>
                         <td>{{ att.details }}</td>
+                        <td>
+                            {% if att.attendance_status == 'pending' %}
+                                <span class="badge bg-warning text-dark">Pending</span>
+                            {% elif att.attendance_status == 'approved' %}
+                                <span class="badge bg-success">Approved</span>
+                            {% elif att.attendance_status == 'rejected' %}
+                                <span class="badge bg-danger" title="Reason: {{ att.rejection_reason }}">Rejected</span>
+                            {% endif %}
+                        </td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="4" class="text-center">No recent attendance.</td></tr>
+                    <tr><td colspan="5" class="text-center">No recent attendance.</td></tr>
                 {% endfor %}
                 </tbody>
             </table>
@@ -119,6 +135,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const canvas = document.getElementById('canvas');
     const photoInput = document.getElementById('photo');
     const cameraContainer = document.getElementById('camera-container');
+    const workNotes = document.getElementById('workNotes');
     let stream;
 
     async function startCamera() {
@@ -139,6 +156,18 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     const handleButtonClick = async (button) => {
+        const eventType = button.getAttribute('data-event');
+
+        // --- FEATURE: Make notes mandatory ---
+        if (eventType === 'End') {
+            // Also check the backend variable in case they haven't saved yet
+            if (!workNotes || workNotes.value.trim() === '') {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter and save your work notes before ending the job.</div>`;
+                workNotes.focus();
+                return;
+            }
+        }
+        
         attendanceSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
         
         button.disabled = true;
@@ -147,15 +176,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const cameraReady = await startCamera();
         if (!cameraReady) {
             button.disabled = false;
-            button.innerHTML = button.getAttribute('data-event') === 'Start' ? 'Start Job' : 'End Job';
+            button.innerHTML = eventType === 'Start' ? 'Start Job' : 'End Job';
             return;
         }
 
         button.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Capturing Photo...`;
         
-        // Let the camera warm up
         setTimeout(() => {
-            document.getElementById('event_type').value = button.getAttribute('data-event');
+            document.getElementById('event_type').value = eventType;
             
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
@@ -168,11 +196,11 @@ document.addEventListener('DOMContentLoaded', function() {
             
             form.submit();
 
-        }, 500); // 0.5 second delay
+        }, 500);
     };
 
-    startBtn.addEventListener('click', () => handleButtonClick(startBtn));
-    endBtn.addEventListener('click', () => handleButtonClick(endBtn));
+    if(startBtn) startBtn.addEventListener('click', () => handleButtonClick(startBtn));
+    if(endBtn) endBtn.addEventListener('click', () => handleButtonClick(endBtn));
 });
 </script>
 {% endblock %}

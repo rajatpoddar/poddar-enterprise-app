@@ -32,6 +32,8 @@ event_type TEXT NOT NULL, -- 'Start' or 'End'
 photo_path TEXT,
 details TEXT,
 notes TEXT, -- New column for daily work notes
+attendance_status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'approved', 'rejected'
+rejection_reason TEXT,
 FOREIGN KEY (employee_id) REFERENCES users (id)
 );
 

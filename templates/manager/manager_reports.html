@@ -1,0 +1,123 @@
+{% extends 'layout.html' %}
+{% block title %}Attendance Reports{% endblock %}
+{% block content %}
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h4 class="mb-0">Monthly Attendance Calendar</h4>
+        <input type="month" id="calendarMonthSelector" class="form-control form-control-sm w-auto" value="{{ now.strftime('%Y-%m') }}">
+    </div>
+    <div class="card-body">
+        <div id="calendar-container" class="table-responsive">
+            </div>
+        <div class="mt-2">
+            <span class="badge bg-success">P</span> = Present (Full Day)
+            <span class="badge bg-warning text-dark">H</span> = Half Day
+            <span class="badge bg-danger">A</span> = Absent
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header"><h4 class="mb-0">Full Attendance Log</h4></div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Photo</th>
+                        <th>Employee</th>
+                        <th>Timestamp (IST)</th>
+                        <th>Event</th>
+                        <th>Details</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for attendance in attendances %}
+                    <tr>
+                        <td>
+                            {% if attendance.photo_path and attendance.photo_path not in ['no_photo.jpg', 'auto'] %}
+                                <a href="{{ url_for('static', filename='uploads/' + attendance.photo_path) }}" target="_blank">
+                                    <img src="{{ url_for('static', filename='uploads/' + attendance.photo_path) }}" alt="Check-in photo" width="50" class="rounded">
+                                </a>
+                            {% else %}
+                                <span class="text-muted">No Photo</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ attendance.employee_name }}</td>
+                        <td>{{ attendance.timestamp | ist }}</td>
+                        <td>
+                            {% if attendance.event_type == 'Start' %}
+                            <span class="badge bg-success">Start</span>
+                            {% else %}
+                            <span class="badge bg-danger">End</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ attendance.details }}</td>
+                        <td style="white-space: pre-wrap; word-break: break-word;">{{ attendance.notes }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center">No recent activity.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% if total_pages > 1 %}
+    <div class="card-footer">
+        <nav>
+            <ul class="pagination justify-content-center mb-0">
+                <li class="page-item {% if page <= 1 %}disabled{% endif %}"><a class="page-link" href="{{ url_for('manager_reports', page=page-1) }}">Previous</a></li>
+                {% for p in range(1, total_pages + 1) %}
+                <li class="page-item {% if p == page %}active{% endif %}"><a class="page-link" href="{{ url_for('manager_reports', page=p) }}">{{ p }}</a></li>
+                {% endfor %}
+                <li class="page-item {% if page >= total_pages %}disabled{% endif %}"><a class="page-link" href="{{ url_for('manager_reports', page=page+1) }}">Next</a></li>
+            </ul>
+        </nav>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function renderCalendar(month) {
+    // The existing API route already handles filtering by manager, so this works as is.
+    const response = await fetch(`/api/monthly_attendance?month=${month}`);
+    const data = await response.json();
+    const [year, monthNum] = month.split('-').map(Number);
+    const daysInMonth = new Date(year, monthNum, 0).getDate();
+
+    let table = `<table class="table table-bordered text-center table-sm"><thead><tr><th>Employee</th>`;
+    for (let i = 1; i <= daysInMonth; i++) {
+        table += `<th style="width: 2.5%;">${i}</th>`;
+    }
+    table += `</tr></thead><tbody>`;
+
+    data.users.forEach(user => {
+        table += `<tr><td>${user.name}</td>`;
+        for (let i = 1; i <= daysInMonth; i++) {
+            const dateStr = `${year}-${String(monthNum).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
+            const status = data.attendance[dateStr] ? data.attendance[dateStr][user.id] : 'A';
+            let badgeClass = 'bg-danger'; // Absent
+            if (status === 'P') badgeClass = 'bg-success';
+            if (status === 'H') badgeClass = 'bg-warning text-dark';
+            table += `<td><span class="badge ${badgeClass}">${status || 'A'}</span></td>`;
+        }
+        table += `</tr>`;
+    });
+
+    table += `</tbody></table>`;
+    document.getElementById('calendar-container').innerHTML = table;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const monthSelector = document.getElementById('calendarMonthSelector');
+    monthSelector.addEventListener('change', () => renderCalendar(monthSelector.value));
+    renderCalendar(monthSelector.value);
+});
+</script>
+{% endblock %}

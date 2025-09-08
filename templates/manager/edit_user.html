@@ -1,4 +1,3 @@
-<!-- File: templates/manager/edit_user.html -->
 {% extends 'layout.html' %}
 {% block title %}Edit User{% endblock %}
 
@@ -10,10 +9,14 @@
             <form method="post">
                 <div class="mb-3"><label class="form-label">Name</label><input type="text" name="name" class="form-control" value="{{ user.name }}" required></div>
                 <div class="mb-3"><label class="form-label">Phone</label><input type="tel" name="phone" class="form-control" value="{{ user.phone }}"></div>
-                <div class="mb-3"><label class="form-label">Role</label><select name="role" class="form-select">
-                    <option value="employee" {% if user.role == 'employee' %}selected{% endif %}>Employee</option>
-                    <option value="manager" {% if user.role == 'manager' %}selected{% endif %}>Manager</option>
-                </select></div>
+                <div class="mb-3">
+                    <label class="form-label">Role</label>
+                    <select name="role" class="form-select">
+                        <option value="employee" {% if user.role == 'employee' %}selected{% endif %}>Employee</option>
+                        <option value="business_manager" {% if user.role == 'business_manager' %}selected{% endif %}>Business Manager</option>
+                        <option value="manager" {% if user.role == 'manager' %}selected{% endif %}>Admin (Manager)</option>
+                    </select>
+                </div>
                 <div class="mb-3"><label class="form-label">Business</label><select name="business_id" class="form-select" required><option value="">Select...</option>{% for b in businesses %}<option value="{{ b.id }}" {% if user.business_id == b.id %}selected{% endif %}>{{ b.name }}</option>{% endfor %}</select></div>
                 <div class="mb-3"><label class="form-label">Daily Wage (₹)</label><input type="number" step="0.01" name="daily_wage" class="form-control" value="{{ user.daily_wage }}"></div>
                 <div class="d-flex justify-content-between">

@@ -1,0 +1,76 @@
+<!-- File: templates/manager/manager_pin_management.html -->
+{% extends 'layout.html' %}
+{% block title %}PIN Management{% endblock %}
+{% block content %}
+<!-- Change Own PIN -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header"><h4 class="mb-0">Change Your PIN</h4></div>
+    <div class="card-body">
+        <form id="changeOwnPinForm" method="post" action="{{ url_for('manager_pin_management') }}" class="row g-3 align-items-end">
+            <input type="hidden" name="action" value="change_own_pin">
+            <div class="col-sm-4">
+                <label for="new_pin" class="form-label">New PIN</label>
+                <input type="password" id="new_pin" name="new_pin" class="form-control" placeholder="4+ digits" required minlength="4" inputmode="numeric" pattern="[0-9]*">
+            </div>
+            <div class="col-sm-4">
+                <label for="confirm_pin" class="form-label">Confirm New PIN</label>
+                <input type="password" id="confirm_pin" class="form-control" placeholder="Re-enter PIN" required minlength="4" inputmode="numeric" pattern="[0-9]*">
+            </div>
+            <div class="col-sm-4">
+                <button type="submit" class="btn btn-primary w-100">Update My PIN</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+<!-- Manage Employee PINs -->
+<div class="card shadow-sm">
+    <div class="card-header"><h4 class="mb-0">Manage Employee PINs for {{ g.user.business_name }}</h4></div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Employee Name</th>
+                        <th>Current PIN</th>
+                        <th>Set New PIN</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr>
+                        <td>{{ user.name }}</td>
+                        <td>{{ user.pin }}</td>
+                        <td>
+                            <form method="post" action="{{ url_for('manager_pin_management') }}" class="d-flex gap-2">
+                                <input type="hidden" name="user_id" value="{{ user.id }}">
+                                <input type="password" name="new_pin" class="form-control form-control-sm" placeholder="New PIN" required minlength="4" inputmode="numeric" pattern="[0-9]*">
+                                <button type="submit" class="btn btn-primary btn-sm">Set</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="3" class="text-center">No active employees found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Simple script to ensure PINs match before submitting manager's own PIN change
+document.getElementById('changeOwnPinForm').addEventListener('submit', function(event) {
+    const newPin = this.querySelector('#new_pin').value;
+    const confirmPin = this.querySelector('#confirm_pin').value;
+    if (newPin !== confirmPin) {
+        alert('The new PINs do not match. Please try again.');
+        event.preventDefault(); // Stop form submission
+    }
+});
+</script>
+{% endblock %}
+

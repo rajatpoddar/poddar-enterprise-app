@@ -1,4 +1,3 @@
-<!-- File: templates/login.html -->
 {% extends 'layout_simple.html' %}
 {% block title %}Login{% endblock %}
 
@@ -17,8 +16,13 @@
                     <label for="user_id" class="form-label">Select Your Name / Role</label>
                     <select id="user_id" name="user_id" class="form-select form-select-lg" required>
                         <option value="" disabled selected>-- Select --</option>
-                        <optgroup label="Managers">
+                        <optgroup label="Admins">
                         {% for user in users %}{% if user.role == 'manager' %}
+                            <option value="{{ user.id }}">{{ user.name }} (Admin)</option>
+                        {% endif %}{% endfor %}
+                        </optgroup>
+                        <optgroup label="Business Managers">
+                        {% for user in users %}{% if user.role == 'business_manager' %}
                             <option value="{{ user.id }}">{{ user.name }} (Manager)</option>
                         {% endif %}{% endfor %}
                         </optgroup>
